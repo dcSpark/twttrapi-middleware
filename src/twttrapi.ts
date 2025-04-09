@@ -1,43 +1,96 @@
 import { UserTweets, TweetApiResponse, User, Media, Tweet, ErrorResponse } from "./types";
-import axios from "axios";
 
 class TwttrApi {
     private static instance: TwttrApi;
     private BASE_URL: string;
     private RAPID_API_KEY: string;
     private DEBUG: boolean;
+    private MAX_RETRIES: number = 3;
+    private RETRY_DELAY: number = 5000; // 1 second
 
-    private constructor() {
-        this.RAPID_API_KEY = process.env.RAPID_API_KEY || '';
+    private constructor(rapidapiKey: string, debug: boolean = false) {
+        this.RAPID_API_KEY = rapidapiKey;
         this.BASE_URL = 'https://twttrapi.p.rapidapi.com';
-        this.DEBUG = process.env.DEBUG === 'true';
+        this.DEBUG = debug;
     }
 
-    public static getInstance(): TwttrApi {
+    public static getInstance(rapidapiKey: string, debug: boolean = false): TwttrApi {
         if (!TwttrApi.instance) {
-            TwttrApi.instance = new TwttrApi();
+            TwttrApi.instance = new TwttrApi(rapidapiKey, debug);
         }
         return TwttrApi.instance;
+    }
+
+    /**
+     * Fetches data from the API with retry logic for 429 errors and timeouts
+     * @param url The URL to fetch from
+     * @param options Fetch options
+     * @param retryCount Current retry count
+     * @returns Promise with the fetch response
+     */
+    private async fetchWithRetry(url: string, options: RequestInit, retryCount: number = 0): Promise<Response> {
+        try {
+            const response = await fetch(url, options);
+            
+            // If we get a 429 (Too Many Requests) error, retry after delay
+            if (response.status === 429 && retryCount < this.MAX_RETRIES) {
+                if (this.DEBUG) {
+                    console.log(`Rate limited (429). Retrying in ${this.RETRY_DELAY}ms (attempt ${retryCount + 1}/${this.MAX_RETRIES})`);
+                }
+                
+                // Wait for the specified delay
+                await new Promise(resolve => setTimeout(resolve, this.RETRY_DELAY));
+                
+                // Retry the request
+                return this.fetchWithRetry(url, options, retryCount + 1);
+            }
+            
+            return response;
+        } catch (error) {
+            // Handle network errors or timeouts
+            if (retryCount < this.MAX_RETRIES) {
+                if (this.DEBUG) {
+                    console.log(`Network error or timeout. Retrying in ${this.RETRY_DELAY}ms (attempt ${retryCount + 1}/${this.MAX_RETRIES})`);
+                }
+                
+                // Wait for the specified delay
+                await new Promise(resolve => setTimeout(resolve, this.RETRY_DELAY));
+                
+                // Retry the request
+                return this.fetchWithRetry(url, options, retryCount + 1);
+            }
+            
+            // If we've exhausted all retries, throw the error
+            throw error;
+        }
     }
 
     public async getTweetById(id: string): Promise<Tweet | ErrorResponse> {
         try {
             // Use the imported interface
-            const response = await axios.get<TweetApiResponse>(this.BASE_URL + '/get-tweet?tweet_id=' + id, {
+            const response = await this.fetchWithRetry(this.BASE_URL + '/get-tweet?tweet_id=' + id, {
+                method: 'GET',
                 headers: {
                     'x-rapidapi-host': 'twttrapi.p.rapidapi.com',
                     'x-rapidapi-key': this.RAPID_API_KEY
                 }
             });
 
+            if (!response.ok) {
+                console.error('API Error:', response.statusText);
+                return { success: false, error: `Failed to get tweet by ID: ${response.statusText}` };
+            }
+
+            const data = await response.json() as TweetApiResponse;
+
             // Check for explicit error response from API
-            if (response.data.success === false) {
-                console.error('API Error:', response.data.error);
-                return { success: false, error: response.data.error || 'Failed to get tweet by ID (API error)' };
+            if (data.success === false) {
+                console.error('API Error:', data.error);
+                return { success: false, error: data.error || 'Failed to get tweet by ID (API error)' };
             }
 
             // Extract data using optional chaining for safety
-            const result = response.data?.data?.tweet_result?.result;
+            const result = data?.data?.tweet_result?.result;
             const text = result?.legacy?.full_text;
             const date = result?.legacy?.created_at;
             const user = result?.core?.user_result?.result?.legacy?.screen_name;
@@ -51,22 +104,15 @@ class TwttrApi {
                 };
                 return tweet;
             } else {
-                console.error('Failed to parse tweet data from response:', response.data);
+                console.error('Failed to parse tweet data from response:', data);
                 // Attempt to return API error if present in the unexpected structure
-                if (response.data?.error) {
-                    return { success: false, error: response.data.error };
+                if (data?.error) {
+                    return { success: false, error: data.error };
                 }
                 return { success: false, error: 'Failed to parse tweet data from response' };
             }
         } catch (error) {
-            console.error('Axios request failed:', error);
-            // Check if error is an Axios error to potentially extract more details
-             if (axios.isAxiosError(error) && error.response) {
-                 console.error('API Response Data:', error.response.data);
-                 // Try to cast response data to ErrorResponse or the new interface
-                 const errorData = error.response.data as (ErrorResponse | TweetApiResponse);
-                 return { success: false, error: errorData.error || 'Failed to get tweet by ID (Request failed)' };
-             }
+            console.error('Fetch request failed:', error);
             return { success: false, error: 'Failed to get tweet by ID (Unknown error)' };
         }
     }
@@ -79,16 +125,24 @@ class TwttrApi {
                 return { success: false, error: 'Username is not valid' };
             }
             
-            const response = await axios.get<UserTweets>(this.BASE_URL + '/user-tweets?username=' + username_clean, {
+            const response = await this.fetchWithRetry(this.BASE_URL + '/user-tweets?username=' + username_clean, {
+                method: 'GET',
                 headers: {
                     'x-rapidapi-host': 'twttrapi.p.rapidapi.com',
                     'x-rapidapi-key': this.RAPID_API_KEY
                 }
             });
             
-            if (response.status > 399 || ((response.data as unknown as ErrorResponse).success === false)) {
-                console.error(response.data);
-                return { success: false, error: (response.data as unknown as ErrorResponse).error || 'Failed to get user tweets' };
+            if (!response.ok) {
+                console.error('API Error:', response.statusText);
+                return { success: false, error: `Failed to get user tweets: ${response.statusText}` };
+            }
+            
+            const data = await response.json() as UserTweets;
+            
+            if ((data as unknown as ErrorResponse).success === false) {
+                console.error(data);
+                return { success: false, error: (data as unknown as ErrorResponse).error || 'Failed to get user tweets' };
             }
             
             const tweets: Tweet[] = [];
@@ -97,7 +151,7 @@ class TwttrApi {
                 console.log(`[PROCESSING] @${username_clean}`);
             }
             
-            const instructions = response.data.data.user_result.result.timeline_response.timeline.instructions;
+            const instructions = data.data.user_result.result.timeline_response.timeline.instructions;
             
             for (const instruction of instructions) {
                 if (instruction.entry) {
@@ -208,26 +262,34 @@ class TwttrApi {
                 return { success: false, error: 'Username is not valid' };
             }
             
-            const response = await axios.get<UserTweets>(this.BASE_URL + '/user-replies?username=' + username_clean, {
+            const response = await this.fetchWithRetry(this.BASE_URL + '/user-replies?username=' + username_clean, {
+                method: 'GET',
                 headers: {
                     'x-rapidapi-host': 'twttrapi.p.rapidapi.com',
                     'x-rapidapi-key': this.RAPID_API_KEY
                 }
             });
             
-            if (response.status > 399 || ((response.data as unknown as ErrorResponse).success === false)) {
-                console.error(response.data);
-                return { success: false, error: (response.data as unknown as ErrorResponse).error || 'Failed to get user replies' };
+            if (!response.ok) {
+                console.error('API Error:', response.statusText);
+                return { success: false, error: `Failed to get user replies: ${response.statusText}` };
+            }
+            
+            const data = await response.json() as UserTweets;
+            
+            if ((data as unknown as ErrorResponse).success === false) {
+                console.error(data);
+                return { success: false, error: (data as unknown as ErrorResponse).error || 'Failed to get user replies' };
             }
             
             const tweets: Tweet[] = [];
-            const data = response.data.data;
+            const userData = data.data;
             
-            if (!data?.user_result?.result?.timeline_response?.timeline?.instructions) {
+            if (!userData?.user_result?.result?.timeline_response?.timeline?.instructions) {
                 return { success: false, error: 'No user replies data found' };
             }
             
-            const instructions = data.user_result.result.timeline_response.timeline.instructions;
+            const instructions = userData.user_result.result.timeline_response.timeline.instructions;
             
             for (const instruction of instructions) {
                 // Process entry instruction
@@ -289,9 +351,6 @@ class TwttrApi {
             return tweets;
         } catch (error) {
             console.error('Error fetching user replies:', error);
-            if (axios.isAxiosError(error) && error.response) {
-                return { success: false, error: `Failed to get user replies: ${error.response.statusText}` };
-            }
             return { success: false, error: 'Failed to get user replies' };
         }
     }
@@ -304,16 +363,24 @@ class TwttrApi {
                 return { success: false, error: 'Username is not valid' };
             }
             
-            const response = await axios.get(this.BASE_URL + '/user-media?username=' + username_clean, {
+            const response = await this.fetchWithRetry(this.BASE_URL + '/user-media?username=' + username_clean, {
+                method: 'GET',
                 headers: {
                     'x-rapidapi-host': 'twttrapi.p.rapidapi.com',
                     'x-rapidapi-key': this.RAPID_API_KEY
                 }
             });
             
-            if (response.status > 399 || ((response.data as unknown as ErrorResponse).success === false)) {
-                console.error(response.data);
-                return { success: false, error: (response.data as unknown as ErrorResponse).error || 'Failed to get user media' };
+            if (!response.ok) {
+                console.error('API Error:', response.statusText);
+                return { success: false, error: `Failed to get user media: ${response.statusText}` };
+            }
+            
+            const data = await response.json();
+            
+            if ((data as unknown as ErrorResponse).success === false) {
+                console.error(data);
+                return { success: false, error: (data as unknown as ErrorResponse).error || 'Failed to get user media' };
             }
             
             const media: Media[] = [];
@@ -322,13 +389,13 @@ class TwttrApi {
                 console.log(`[PROCESSING MEDIA] @${username_clean}`);
             }
             
-            const data = response.data.data;
+            const userData = data.data;
             
-            if (!data?.user_result?.result?.timeline_response?.timeline?.instructions) {
+            if (!userData?.user_result?.result?.timeline_response?.timeline?.instructions) {
                 return { success: false, error: 'No user media data found' };
             }
             
-            const instructions = data.user_result.result.timeline_response.timeline.instructions;
+            const instructions = userData.user_result.result.timeline_response.timeline.instructions;
             
             for (const instruction of instructions) {
                 // Process entries in the instructions
@@ -364,9 +431,6 @@ class TwttrApi {
             return media;
         } catch (error) {
             console.error('Error fetching user media:', error);
-            if (axios.isAxiosError(error) && error.response) {
-                return { success: false, error: `Failed to get user media: ${error.response.statusText}` };
-            }
             return { success: false, error: 'Failed to get user media' };
         }
     }
@@ -378,16 +442,24 @@ class TwttrApi {
                 return { success: false, error: 'Search query is not valid' };
             }
             
-            const response = await axios.get(this.BASE_URL + '/search-top?query=' + encodeURIComponent(query), {
+            const response = await this.fetchWithRetry(this.BASE_URL + '/search-top?query=' + encodeURIComponent(query), {
+                method: 'GET',
                 headers: {
                     'x-rapidapi-host': 'twttrapi.p.rapidapi.com',
                     'x-rapidapi-key': this.RAPID_API_KEY
                 }
             });
             
-            if (response.status > 399 || ((response.data as unknown as ErrorResponse).success === false)) {
-                console.error(response.data);
-                return { success: false, error: (response.data as unknown as ErrorResponse).error || 'Failed to search top tweets' };
+            if (!response.ok) {
+                console.error('API Error:', response.statusText);
+                return { success: false, error: `Failed to search top tweets: ${response.statusText}` };
+            }
+            
+            const data = await response.json();
+            
+            if ((data as unknown as ErrorResponse).success === false) {
+                console.error(data);
+                return { success: false, error: (data as unknown as ErrorResponse).error || 'Failed to search top tweets' };
             }
             
             const tweets: Tweet[] = [];
@@ -396,7 +468,7 @@ class TwttrApi {
                 console.log(`[PROCESSING SEARCH TOP] "${query}"`);
             }
             
-            const instructions = response.data.data.search.timeline_response.timeline.instructions;
+            const instructions = data.data.search.timeline_response.timeline.instructions;
             
             for (const instruction of instructions) {
                 if (instruction.__typename === "TimelineAddEntries" && instruction.entries) {
@@ -439,9 +511,6 @@ class TwttrApi {
             return tweets;
         } catch (error) {
             console.error('Error searching top tweets:', error);
-            if (axios.isAxiosError(error) && error.response) {
-                return { success: false, error: `Failed to search top tweets: ${error.response.statusText}` };
-            }
             return { success: false, error: 'Failed to search top tweets' };
         }
     }
@@ -453,16 +522,24 @@ class TwttrApi {
                 return { success: false, error: 'Search query is not valid' };
             }
             
-            const response = await axios.get(this.BASE_URL + '/search-latest?query=' + encodeURIComponent(query), {
+            const response = await this.fetchWithRetry(this.BASE_URL + '/search-latest?query=' + encodeURIComponent(query), {
+                method: 'GET',
                 headers: {
                     'x-rapidapi-host': 'twttrapi.p.rapidapi.com',
                     'x-rapidapi-key': this.RAPID_API_KEY
                 }
             });
             
-            if (response.status > 399 || ((response.data as unknown as ErrorResponse).success === false)) {
-                console.error(response.data);
-                return { success: false, error: (response.data as unknown as ErrorResponse).error || 'Failed to search latest tweets' };
+            if (!response.ok) {
+                console.error('API Error:', response.statusText);
+                return { success: false, error: `Failed to search latest tweets: ${response.statusText}` };
+            }
+            
+            const data = await response.json();
+            
+            if ((data as unknown as ErrorResponse).success === false) {
+                console.error(data);
+                return { success: false, error: (data as unknown as ErrorResponse).error || 'Failed to search latest tweets' };
             }
             
             const tweets: Tweet[] = [];
@@ -471,7 +548,7 @@ class TwttrApi {
                 console.log(`[PROCESSING SEARCH LATEST] "${query}"`);
             }
             
-            const instructions = response.data.data.search.timeline_response.timeline.instructions;
+            const instructions = data.data.search.timeline_response.timeline.instructions;
             
             for (const instruction of instructions) {
                 if (instruction.__typename === "TimelineAddEntries" && instruction.entries) {
@@ -514,9 +591,6 @@ class TwttrApi {
             return tweets;
         } catch (error) {
             console.error('Error searching latest tweets:', error);
-            if (axios.isAxiosError(error) && error.response) {
-                return { success: false, error: `Failed to search latest tweets: ${error.response.statusText}` };
-            }
             return { success: false, error: 'Failed to search latest tweets' };
         }
     }
@@ -528,16 +602,24 @@ class TwttrApi {
                 return { success: false, error: 'Search query is not valid' };
             }
             
-            const response = await axios.get(this.BASE_URL + '/search-users?query=' + encodeURIComponent(query), {
+            const response = await this.fetchWithRetry(this.BASE_URL + '/search-users?query=' + encodeURIComponent(query), {
+                method: 'GET',
                 headers: {
                     'x-rapidapi-host': 'twttrapi.p.rapidapi.com',
                     'x-rapidapi-key': this.RAPID_API_KEY
                 }
             });
             
-            if (response.status > 399 || ((response.data as unknown as ErrorResponse).success === false)) {
-                console.error(response.data);
-                return { success: false, error: (response.data as unknown as ErrorResponse).error || 'Failed to search users' };
+            if (!response.ok) {
+                console.error('API Error:', response.statusText);
+                return { success: false, error: `Failed to search users: ${response.statusText}` };
+            }
+            
+            const data = await response.json();
+            
+            if ((data as unknown as ErrorResponse).success === false) {
+                console.error(data);
+                return { success: false, error: (data as unknown as ErrorResponse).error || 'Failed to search users' };
             }
             
             const users: User[] = [];
@@ -546,7 +628,7 @@ class TwttrApi {
                 console.log(`[PROCESSING SEARCH USERS] "${query}"`);
             }
             
-            const instructions = response.data.data.search.timeline_response.timeline.instructions;
+            const instructions = data.data.search.timeline_response.timeline.instructions;
             
             for (const instruction of instructions) {
                 if (instruction.__typename === "TimelineAddEntries" && instruction.entries) {
@@ -574,9 +656,6 @@ class TwttrApi {
             return users;
         } catch (error) {
             console.error('Error searching users:', error);
-            if (axios.isAxiosError(error) && error.response) {
-                return { success: false, error: `Failed to search users: ${error.response.statusText}` };
-            }
             return { success: false, error: 'Failed to search users' };
         }
     }
@@ -589,20 +668,25 @@ class TwttrApi {
                 return { success: false, error: 'Username is not valid' };
             }
 
-            const response = await axios.get(this.BASE_URL + '/get-user?username=' + username_clean, {
+            const response = await this.fetchWithRetry(this.BASE_URL + '/get-user?username=' + username_clean, {
+                method: 'GET',
                 headers: {
                     'x-rapidapi-host': 'twttrapi.p.rapidapi.com',
                     'x-rapidapi-key': this.RAPID_API_KEY
                 }
             });
 
-            if (response.status > 399 || ((response.data as unknown as ErrorResponse).success === false)) {
-                console.error(response.data);
-                return { success: false, error: 'Failed to get user data' };
+            if (!response.ok) {
+                console.error('API Error:', response.statusText);
+                return { success: false, error: `Failed to get user data: ${response.statusText}` };
             }
             
-            // Extract the requested fields from the user data
-            const userData = response.data;
+            const userData = await response.json();
+            
+            if ((userData as unknown as ErrorResponse).success === false) {
+                console.error(userData);
+                return { success: false, error: 'Failed to get user data' };
+            }
             
             if (!userData) {
                 return { success: false, error: 'No user data returned' };
@@ -632,16 +716,24 @@ class TwttrApi {
                 return { success: false, error: 'Username is not valid' };
             }
             
-            const response = await axios.get(this.BASE_URL + '/user-followers?username=' + username_clean, {
+            const response = await this.fetchWithRetry(this.BASE_URL + '/user-followers?username=' + username_clean, {
+                method: 'GET',
                 headers: {
                     'x-rapidapi-host': 'twttrapi.p.rapidapi.com',
                     'x-rapidapi-key': this.RAPID_API_KEY
                 }
             });
             
-            if (response.status > 399 || ((response.data as unknown as ErrorResponse).success === false)) {
-                console.error(response.data);
-                return { success: false, error: (response.data as unknown as ErrorResponse).error || 'Failed to get user followers' };
+            if (!response.ok) {
+                console.error('API Error:', response.statusText);
+                return { success: false, error: `Failed to get user followers: ${response.statusText}` };
+            }
+            
+            const data = await response.json();
+            
+            if ((data as unknown as ErrorResponse).success === false) {
+                console.error(data);
+                return { success: false, error: (data as unknown as ErrorResponse).error || 'Failed to get user followers' };
             }
             
             const users: User[] = [];
@@ -650,7 +742,7 @@ class TwttrApi {
                 console.log(`[PROCESSING FOLLOWERS] @${username_clean}`);
             }
             
-            const instructions = response.data.data.user.timeline_response.timeline.instructions;
+            const instructions = data.data.user.timeline_response.timeline.instructions;
             
             for (const instruction of instructions) {
                 if (instruction.__typename === "TimelineAddEntries" && instruction.entries) {
@@ -677,9 +769,6 @@ class TwttrApi {
             return users;
         } catch (error) {
             console.error('Error fetching user followers:', error);
-            if (axios.isAxiosError(error) && error.response) {
-                return { success: false, error: `Failed to get user followers: ${error.response.statusText}` };
-            }
             return { success: false, error: 'Failed to get user followers' };
         }
     }
@@ -692,16 +781,24 @@ class TwttrApi {
                 return { success: false, error: 'Username is not valid' };
             }
             
-            const response = await axios.get(this.BASE_URL + '/user-following?username=' + username_clean, {
+            const response = await this.fetchWithRetry(this.BASE_URL + '/user-following?username=' + username_clean, {
+                method: 'GET',
                 headers: {
                     'x-rapidapi-host': 'twttrapi.p.rapidapi.com',
                     'x-rapidapi-key': this.RAPID_API_KEY
                 }
             });
             
-            if (response.status > 399 || ((response.data as unknown as ErrorResponse).success === false)) {
-                console.error(response.data);
-                return { success: false, error: (response.data as unknown as ErrorResponse).error || 'Failed to get user following' };
+            if (!response.ok) {
+                console.error('API Error:', response.statusText);
+                return { success: false, error: `Failed to get user following: ${response.statusText}` };
+            }
+            
+            const data = await response.json();
+            
+            if ((data as unknown as ErrorResponse).success === false) {
+                console.error(data);
+                return { success: false, error: (data as unknown as ErrorResponse).error || 'Failed to get user following' };
             }
             
             const users: User[] = [];
@@ -710,7 +807,7 @@ class TwttrApi {
                 console.log(`[PROCESSING FOLLOWING] @${username_clean}`);
             }
             
-            const instructions = response.data.data.user.timeline_response.timeline.instructions;
+            const instructions = data.data.user.timeline_response.timeline.instructions;
             
             for (const instruction of instructions) {
                 if (instruction.__typename === "TimelineAddEntries" && instruction.entries) {
@@ -737,9 +834,6 @@ class TwttrApi {
             return users;
         } catch (error) {
             console.error('Error fetching user following:', error);
-            if (axios.isAxiosError(error) && error.response) {
-                return { success: false, error: `Failed to get user following: ${error.response.statusText}` };
-            }
             return { success: false, error: 'Failed to get user following' };
         }
     }

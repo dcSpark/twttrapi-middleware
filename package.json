@@ -1,12 +1,19 @@
 {
   "name": "twttrapi-middleware",
-  "version": "1.0.0",
-  "main": "index.ts",
+  "version": "1.0.6",
+  "main": "dist/index.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && cp ./README.md ./dist/README.md && cp ./package.json ./dist/package.json",
     "start": "node dist/index.js",
     "dev": "npx ts-node src/index.ts",
     "test": "npx ts-node src/test.ts"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dcspark/twttrapi-middleware"
+  },
+  "bugs": {
+    "url": "https://github.com/dcspark/twttrapi-middleware/issues"
   },
   "keywords": [
     "twitter",
@@ -20,7 +27,6 @@
     "@types/node": "^22.14.0"
   },
   "dependencies": {
-    "axios": "^1.8.4",
-    "typescript": "^5.8.2"
+    "typescript": "5.8.3"
   }
 }

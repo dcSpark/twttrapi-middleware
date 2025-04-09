@@ -1,3 +1,3 @@
 import TwttrApi from "./twttrapi";
 
-export default TwttrApi;
+export { TwttrApi };
