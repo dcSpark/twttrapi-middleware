@@ -28,9 +28,9 @@ async function runTests() {
   console.log('[TwttrAPI] Searching users...');
   await api.searchUsers('NicoArqueros').then((x: User[] | ErrorResponse) => console.log(JSON.stringify(x, null, 2)));
   console.log('[TwttrAPI] Searching latest...');
-  await api.searchLatest('NicoArqueros').then((x: Tweet[] | ErrorResponse) => console.log(JSON.stringify(x, null, 2)));
+  await api.searchLatest('Crypto').then((x: Tweet[] | ErrorResponse) => console.log(JSON.stringify(x, null, 2)));
   console.log('[TwttrAPI] Searching top...');
-  await api.searchTop('NicoArqueros').then((x: Tweet[] | ErrorResponse) => console.log(JSON.stringify(x, null, 2)));
+  await api.searchTop('Crypto').then((x: Tweet[] | ErrorResponse) => console.log(JSON.stringify(x, null, 2)));
   console.log('[TwttrAPI] Tests completed.');
 }
 

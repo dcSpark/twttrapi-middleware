@@ -476,23 +476,23 @@ class TwttrApi {
                             const tweetResult = entry.content.content.tweetResult.result;
                             
                             if (tweetResult.legacy) {
-                                const username = tweetResult.core?.user_results?.result?.legacy?.screen_name || '';
+                                const username = tweetResult.core?.user_result?.result?.legacy?.screen_name || '';
                                 
                                 tweets.push({
                                     text: tweetResult.legacy.full_text,
                                     date: tweetResult.legacy.created_at,
-                                    user: `@${username}`
+                                    user: username
                                 });
                             }
                             
                             if (tweetResult.quoted_status_result?.result?.legacy) {
                                 const quotedTweet = tweetResult.quoted_status_result.result;
-                                const quotedUsername = quotedTweet.core?.user_results?.result?.legacy?.screen_name || '';
+                                const quotedUsername = quotedTweet.core?.user_result?.result?.legacy?.screen_name || '';
                                 
                                 tweets.push({
                                     text: quotedTweet.legacy.full_text,
                                     date: quotedTweet.legacy.created_at,
-                                    user: `@${quotedUsername}`
+                                    user: quotedUsername
                                 });
                             }
                         }
@@ -556,23 +556,23 @@ class TwttrApi {
                             const tweetResult = entry.content.content.tweetResult.result;
                             
                             if (tweetResult.legacy) {
-                                const username = tweetResult.core?.user_results?.result?.legacy?.screen_name || '';
+                                const username = tweetResult.core?.user_result?.result?.legacy?.screen_name || '';
                                 
                                 tweets.push({
                                     text: tweetResult.legacy.full_text,
                                     date: tweetResult.legacy.created_at,
-                                    user: `@${username}`
+                                    user: username
                                 });
                             }
                             
                             if (tweetResult.quoted_status_result?.result?.legacy) {
                                 const quotedTweet = tweetResult.quoted_status_result.result;
-                                const quotedUsername = quotedTweet.core?.user_results?.result?.legacy?.screen_name || '';
+                                const quotedUsername = quotedTweet.core?.user_result?.result?.legacy?.screen_name || '';
                                 
                                 tweets.push({
                                     text: quotedTweet.legacy.full_text,
                                     date: quotedTweet.legacy.created_at,
-                                    user: `@${quotedUsername}`
+                                    user: quotedUsername
                                 });
                             }
                         }
