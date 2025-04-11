@@ -21,27 +21,13 @@ npm install twttrapi-middleware
 
 You need a RapidAPI key with access to the twttrapi service. Sign up at [RapidAPI](https://rapidapi.com) and subscribe to the [twttrapi](https://rapidapi.com/twttrapi/api/twttrapi) service.
 
-## Configuration
-
-Set your RapidAPI key as an environment variable:
-
-```bash
-export RAPID_API_KEY="your-rapidapi-key"
-```
-
-Optionally, enable debug mode:
-
-```bash
-export DEBUG=true
-```
-
 ## Usage
 
 ```typescript
 import TwttrApi from "twttrapi-middleware";
 
-// Get instance (singleton pattern)
-const twttr = TwttrApi.getInstance();
+// Initialize with your RapidAPI key
+const twttr = new TwttrApi('your-rapidapi-key', true); // Second parameter enables debug mode
 
 // Example: Get a tweet by ID
 twttr.getTweetById('1907254694163980405')
@@ -56,9 +42,14 @@ twttr.getUserTweets('username')
 
 ## API Reference
 
-### TwttrApi.getInstance()
+### Constructor
 
-Returns the singleton instance of the TwttrApi class.
+```typescript
+new TwttrApi(rapidapiKey: string, debug: boolean = false)
+```
+
+- `rapidapiKey`: Your RapidAPI key
+- `debug`: Optional boolean to enable debug mode (defaults to false)
 
 ### Methods
 
