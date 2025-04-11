@@ -1,6 +1,6 @@
 {
   "name": "twttrapi-middleware",
-  "version": "1.0.6",
+  "version": "1.0.7",
   "main": "dist/index.js",
   "scripts": {
     "build": "tsc && cp ./README.md ./dist/README.md && cp ./package.json ./dist/package.json",

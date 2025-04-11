@@ -1,24 +1,16 @@
 import { UserTweets, TweetApiResponse, User, Media, Tweet, ErrorResponse } from "./types";
 
 class TwttrApi {
-    private static instance: TwttrApi;
     private BASE_URL: string;
     private RAPID_API_KEY: string;
     private DEBUG: boolean;
     private MAX_RETRIES: number = 3;
     private RETRY_DELAY: number = 5000; // 1 second
 
-    private constructor(rapidapiKey: string, debug: boolean = false) {
+    public constructor(rapidapiKey: string, debug: boolean = false) {
         this.RAPID_API_KEY = rapidapiKey;
         this.BASE_URL = 'https://twttrapi.p.rapidapi.com';
         this.DEBUG = debug;
-    }
-
-    public static getInstance(rapidapiKey: string, debug: boolean = false): TwttrApi {
-        if (!TwttrApi.instance) {
-            TwttrApi.instance = new TwttrApi(rapidapiKey, debug);
-        }
-        return TwttrApi.instance;
     }
 
     /**

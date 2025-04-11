@@ -7,7 +7,7 @@ if (!apiKey) {
   throw new Error('RAPID_API_KEY is not set');
 }
 
-const api = TwttrApi.getInstance(apiKey, true);
+const api = new TwttrApi(apiKey, true);
 
 async function runTests() {
   console.log('[TwttrAPI] Running tests...');
